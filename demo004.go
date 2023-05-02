@@ -4,84 +4,99 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	_ "github.com/lib/pq"
 )
 
-type DBIndex struct {
-	Table        string `json:"table"`
-	IndexName    string `json:"index_name"`
-	ColumnNames  string `json:"column_names"`
-	IsUnique     bool   `json:"is_unique"`
-	IsPrimary    bool   `json:"is_primary"`
-	IsPartial    bool   `json:"is_partial"`
-	IsConcurrent bool   `json:"is_concurrent"`
+type Column struct {
+	Name              string         `json:"column_name"`
+	DataType          string         `json:"data_type"`
+	IsNullable        string         `json:"is_nullable"`
+	MaxLength         sql.NullInt64  `json:"character_maximum_length"`
+	NumericPrecision  sql.NullInt64  `json:"numeric_precision"`
+	DateTimePrecision sql.NullInt64  `json:"datetime_precision"`
+	DefaultVal        sql.NullString `json:"column_default"`
+}
+
+type Table struct {
+	Name    string   `json:"table_name"`
+	Columns []Column `json:"columns"`
 }
 
 func main() {
-	// установка соединения с базой данных Postgres
-	db, err := sql.Open("postgres", "user=имя_пользователя password=пароль dbname=имя_базы данных sslmode=disable")
+	connStr := "user=your_username password=your_password dbname=your_dbname sslmode=require"
+	db, err := sql.Open("postgres", connStr)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
-	// выполнение SQL-запроса для получения индексов всех таблиц в базе данных
 	rows, err := db.Query(`
-        SELECT
-            t.relname as table_name,
-            ix.relname as index_name,
-            array_to_string(array_agg(a.attname), ',') as column_names,
-            ix.indisunique as is_unique,
-            ix.indisprimary as is_primary,
-            ix.indispartial as is_partial,
-            ix.indisvalid as is_concurrent
-        FROM
-            pg_index as i
-            JOIN pg_class as t ON i.indrelid = t.oid
-            JOIN pg_class as ix ON i.indexrelid = ix.oid
-            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
-            JOIN pg_namespace nsp on nsp.oid = t.relnamespace
-        WHERE nsp.nspname = 'public'
-        GROUP BY table_name, index_name, is_unique, is_primary, is_partial, is_concurrent
+        SELECT 
+            table_name, 
+            column_name, 
+            data_type, 
+            is_nullable,
+            character_maximum_length,
+            numeric_precision,
+            datetime_precision,
+            column_default
+        FROM 
+            information_schema.columns
+        WHERE 
+            table_schema = 'public' -- replace 'public' with name of schema you are interested in
     `)
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer rows.Close()
 
-	// перебор результатов и создание словаря DBIndex-ов
-	indices := make([]DBIndex, 0)
+	var tables []Table
+	var prevTable string // keep track of previous table name
+	var currentTable *Table
+
 	for rows.Next() {
-		index := DBIndex{}
-		if err := rows.Scan(
-			&index.Table,
-			&index.IndexName,
-			&index.ColumnNames,
-			&index.IsUnique,
-			&index.IsPrimary,
-			&index.IsPartial,
-			&index.IsConcurrent); err != nil {
-			panic(err)
+		var column Column
+		var tableName string
+
+		err := rows.Scan(&tableName, &column.Name, &column.DataType, &column.IsNullable, &column.MaxLength, &column.NumericPrecision, &column.DateTimePrecision, &column.DefaultVal)
+		if err != nil {
+			log.Fatal(err)
 		}
-		indices = append(indices, index)
+
+		// if table changed, create new Table instance
+		if prevTable != tableName {
+			currentTable = &Table{Name: tableName}
+			tables = append(tables, *currentTable)
+			prevTable = tableName
+		}
+
+		currentTable.Columns = append(currentTable.Columns, column)
 	}
 
-	// кодирование результата в формат JSON
-	jsonOutput, err := json.Marshal(indices)
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	// marshal tables to JSON
+	jsonTables, err := json.MarshalIndent(tables, "", "  ")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	// сохранение результата в файл
-	outputFile, err := os.Create("output.json")
+	// write JSON to file
+	file, err := os.Create("tables.json")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
-	defer outputFile.Close()
-	outputFile.Write(jsonOutput)
+	defer file.Close()
 
-	// вывод полученных данных
-	fmt.Println(string(jsonOutput))
+	_, err = file.Write(jsonTables)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println("Tables JSON written to file")
 }
