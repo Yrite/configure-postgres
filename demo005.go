@@ -43,7 +43,7 @@ func main() {
             JOIN pg_class as ix ON i.indexrelid = ix.oid
             JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
             JOIN pg_namespace nsp on nsp.oid = t.relnamespace
-        WHERE nsp.nspname = 'tosca'
+        WHERE nsp.nspname = 'public'
         GROUP BY table_name, index_name, is_unique, is_primary, is_partial, is_concurrent
     `)
 	if err != nil {
