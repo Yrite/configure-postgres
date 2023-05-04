@@ -4,84 +4,68 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 
 	_ "github.com/lib/pq"
 )
 
-type DBIndex struct {
-	Table        string `json:"table"`
-	IndexName    string `json:"index_name"`
-	ColumnNames  string `json:"column_names"`
-	IsUnique     bool   `json:"is_unique"`
-	IsPrimary    bool   `json:"is_primary"`
-	IsPartial    bool   `json:"is_partial"`
-	IsConcurrent bool   `json:"is_concurrent"`
+// Define a struct to hold data from the database
+type MyTable struct {
+	Col1 string `json:"col1"`
+	Col2 string `json:"col2"`
+	Col3 string `json:"col3"`
 }
 
 func main() {
-	// установка соединения с базой данных Postgres
-	db, err := sql.Open("postgres", "user=имя_пользователя password=пароль dbname=имя_базы данных sslmode=disable")
+	// Connect to Postgres
+	db, err := sql.Open("postgres", "user=your_username password=your_password dbname=your_dbname sslmode=disable")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
-	// выполнение SQL-запроса для получения индексов всех таблиц в базе данных
-	rows, err := db.Query(`
-        SELECT
-            t.relname as table_name,
-            ix.relname as index_name,
-            array_to_string(array_agg(a.attname), ',') as column_names,
-            ix.indisunique as is_unique,
-            ix.indisprimary as is_primary,
-            ix.indispartial as is_partial,
-            ix.indisvalid as is_concurrent
-        FROM
-            pg_index as i
-            JOIN pg_class as t ON i.indrelid = t.oid
-            JOIN pg_class as ix ON i.indexrelid = ix.oid
-            JOIN pg_attribute a ON a.attrelid = t.oid AND a.attnum = ANY(i.indkey)
-            JOIN pg_namespace nsp on nsp.oid = t.relnamespace
-        WHERE nsp.nspname = 'public'
-        GROUP BY table_name, index_name, is_unique, is_primary, is_partial, is_concurrent
-    `)
+	// Execute the SQL query to select data from the table
+	rows, err := db.Query("SELECT col1, col2, col3 FROM my_table")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 	defer rows.Close()
 
-	// перебор результатов и создание словаря DBIndex-ов
-	indices := make([]DBIndex, 0)
+	// Create an empty slice to store the resulting data
+	var data []MyTable
+
+	// Iterate over the rows of the result set and store data in slice
 	for rows.Next() {
-		index := DBIndex{}
-		if err := rows.Scan(
-			&index.Table,
-			&index.IndexName,
-			&index.ColumnNames,
-			&index.IsUnique,
-			&index.IsPrimary,
-			&index.IsPartial,
-			&index.IsConcurrent); err != nil {
-			panic(err)
+		var col1, col2, col3 string
+
+		if err := rows.Scan(&col1, &col2, &col3); err != nil {
+			log.Fatal(err)
 		}
-		indices = append(indices, index)
+
+		data = append(data, MyTable{
+			Col1: col1,
+			Col2: col2,
+			Col3: col3,
+		})
 	}
 
-	// кодирование результата в формат JSON
-	jsonOutput, err := json.Marshal(indices)
+	// Check for errors during iteration
+	if err := rows.Err(); err != nil {
+		log.Fatal(err)
+	}
+
+	// Marshal the data into JSON
+	jsonData, err := json.MarshalIndent(data, "", "    ")
 	if err != nil {
-		panic(err)
+		log.Fatal(err)
 	}
 
-	// сохранение результата в файл
-	outputFile, err := os.Create("output.json")
-	if err != nil {
-		panic(err)
+	// Write the JSON data to a file
+	if err := os.WriteFile("output.json", jsonData, 0644); err != nil {
+		log.Fatal(err)
 	}
-	defer outputFile.Close()
-	outputFile.Write(jsonOutput)
 
-	// вывод полученных данных
-	fmt.Println(string(jsonOutput))
+	fmt.Println("Data has been written to file output.json.")
 }
+H1uzkyfsVrnF
